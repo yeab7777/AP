@@ -1,0 +1,309 @@
+// Source code is decompiled from a .class file using FernFlower decompiler (from Intellij IDEA).
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.PrintWriter;
+import java.net.Socket;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
+import javafx.application.Application;
+import javafx.application.Platform;
+import javafx.collections.FXCollections;
+import javafx.collections.ObservableList;
+import javafx.geometry.Insets;
+import javafx.geometry.Pos;
+import javafx.scene.Node;
+import javafx.scene.Scene;
+import javafx.scene.control.Button;
+import javafx.scene.control.ComboBox;
+import javafx.scene.control.Label;
+import javafx.scene.control.ScrollPane;
+import javafx.scene.control.TextField;
+import javafx.scene.layout.HBox;
+import javafx.scene.layout.Priority;
+import javafx.scene.layout.StackPane;
+import javafx.scene.layout.VBox;
+import javafx.scene.paint.Color;
+import javafx.scene.shape.Rectangle;
+import javafx.stage.Stage;
+
+public class ChatClient extends Application {
+   private Socket socket;
+   private PrintWriter serverOut;
+   private BufferedReader serverIn;
+   private Thread incomingMessages;
+   private final ObservableList<String> onlineUsers = FXCollections.observableArrayList();
+   private final DateTimeFormatter timeFmt = DateTimeFormatter.ofPattern("HH:mm:ss");
+   private VBox chatBox;
+   private Label statusLabel;
+   private ComboBox<String> recipientBox;
+   private TextField messageField;
+   private String username;
+   private ChatMode mode;
+
+   public ChatClient() {
+      this.mode = ChatClient.ChatMode.SERVER;
+   }
+
+   public void start(Stage var1) {
+      StackPane var2 = new StackPane();
+      var2.setStyle("-fx-background-color: linear-gradient(to bottom right, #020617, #111827);");
+      var2.getChildren().add(this.buildLoginView(var2));
+      Scene var3 = new Scene(var2, (double)960.0F, (double)660.0F);
+      var3.setFill(Color.web("#020617"));
+      var1.setScene(var3);
+      var1.setTitle("GlowChat");
+      var1.show();
+   }
+
+   private VBox buildLoginView(StackPane var1) {
+      Label var2 = new Label("GlowChat");
+      var2.setStyle("-fx-font-size: 34px; -fx-font-weight: bold; -fx-text-fill: white;");
+      Label var3 = new Label("Choose who you want to chat with.");
+      var3.setStyle("-fx-text-fill: #cbd5e1; -fx-font-size: 14px;");
+      TextField var4 = new TextField();
+      var4.setPromptText("Username");
+      var4.setMaxWidth((double)280.0F);
+      ComboBox var5 = new ComboBox(FXCollections.observableArrayList(new ChatMode[]{ChatClient.ChatMode.SERVER, ChatClient.ChatMode.PEER}));
+      var5.setValue(ChatClient.ChatMode.SERVER);
+      var5.setMaxWidth((double)280.0F);
+      Label var6 = new Label("Server Bot = chat with the server bot. Peer Chat = talk with another online user.");
+      var6.setWrapText(true);
+      var6.setMaxWidth((double)300.0F);
+      var6.setStyle("-fx-text-fill: #94a3b8; -fx-font-size: 12px;");
+      Button var7 = new Button("Start Chatting");
+      var7.setMaxWidth((double)280.0F);
+      var7.setDefaultButton(true);
+      VBox var8 = new VBox((double)14.0F, new Node[]{var2, var3, var4, var5, var6, var7});
+      var8.setAlignment(Pos.CENTER);
+      var8.setPadding(new Insets((double)28.0F));
+      var8.setMaxWidth((double)360.0F);
+      var8.setStyle("-fx-background-color: rgba(15, 23, 42, 0.88); -fx-background-radius: 24; -fx-border-color: rgba(148, 163, 184, 0.2); -fx-border-radius: 24;");
+      Rectangle var9 = new Rectangle((double)160.0F, (double)160.0F, Color.web("#7c3aed", 0.22));
+      var9.setArcWidth((double)32.0F);
+      var9.setArcHeight((double)32.0F);
+      VBox var10 = new VBox((double)18.0F, new Node[]{var9, var8});
+      var10.setAlignment(Pos.CENTER);
+      var7.setOnAction((var5x) -> {
+         String var6 = var4.getText().trim();
+         if (var6.isEmpty()) {
+            var3.setText("Enter a username first.");
+         } else {
+            this.username = var6;
+            this.mode = (ChatMode)var5.getValue();
+            this.connectAndOpenChat(var1);
+         }
+      });
+      return var10;
+   }
+
+   private void connectAndOpenChat(StackPane var1) {
+      try {
+         this.socket = new Socket("localhost", 12345);
+         this.serverOut = new PrintWriter(this.socket.getOutputStream(), true);
+         this.serverIn = new BufferedReader(new InputStreamReader(this.socket.getInputStream()));
+         String var10001 = this.username;
+         this.serverOut.println("LOGIN|" + var10001 + "|" + this.mode.name());
+         var1.getChildren().setAll(new Node[]{this.buildChatView()});
+         this.incomingMessages = new Thread(this::readIncoming, "client-incoming");
+         this.incomingMessages.setDaemon(true);
+         this.incomingMessages.start();
+      } catch (IOException var4) {
+         Label var3 = new Label("Unable to connect to server: " + var4.getMessage());
+         var3.setStyle("-fx-text-fill: #fecaca; -fx-font-size: 14px;");
+         var1.getChildren().setAll(new Node[]{var3});
+      }
+
+   }
+
+   private VBox buildChatView() {
+      this.chatBox = new VBox((double)10.0F);
+      this.chatBox.setPadding(new Insets((double)14.0F));
+      ScrollPane var1 = new ScrollPane(this.chatBox);
+      var1.setFitToWidth(true);
+      var1.setStyle("-fx-background: transparent; -fx-background-color: transparent;");
+      Label var2 = new Label(this.mode == ChatClient.ChatMode.SERVER ? "Server Bot" : "Peer Chat");
+      var2.setStyle("-fx-font-size: 20px; -fx-font-weight: bold; -fx-text-fill: white;");
+      String var10003 = this.username;
+      this.statusLabel = new Label("Connected as " + var10003);
+      this.statusLabel.setStyle("-fx-text-fill: #94a3b8; -fx-font-size: 12px;");
+      this.recipientBox = new ComboBox(this.onlineUsers);
+      this.recipientBox.setPromptText("Choose user");
+      this.recipientBox.setVisible(this.mode == ChatClient.ChatMode.PEER);
+      this.recipientBox.setManaged(this.mode == ChatClient.ChatMode.PEER);
+      TextField var3 = new TextField(this.mode == ChatClient.ChatMode.SERVER ? "Server Bot" : "Select peer user");
+      var3.setDisable(true);
+      var3.setPrefWidth((double)160.0F);
+      this.messageField = new TextField();
+      this.messageField.setPromptText("Type a message");
+      Button var4 = new Button("Send");
+      var4.setDefaultButton(true);
+      HBox var5 = new HBox((double)6.0F);
+      String[] var6 = new String[]{"\ud83d\ude00", "\ud83d\ude02", "❤️", "\ud83d\udc4d", "\ud83d\ude2e", "\ud83d\ude22", "\ud83d\udd25", "\ud83d\ude4f"};
+
+      for(String var10 : var6) {
+         Button var11 = new Button(var10);
+         var11.setStyle("-fx-background-color: rgba(30, 41, 59, 0.8); -fx-text-fill: white; -fx-background-radius: 14;");
+         var11.setOnAction((var2x) -> this.messageField.appendText(var10));
+         var5.getChildren().add(var11);
+      }
+
+      Runnable var12 = () -> {
+         String var1 = this.messageField.getText().trim();
+         if (!var1.isEmpty()) {
+            if (this.mode == ChatClient.ChatMode.SERVER) {
+               this.serverOut.println("MSG|SERVER|" + var1);
+               this.appendRow(ChatClient.Side.RIGHT, this.username, var1);
+            } else {
+               String var2 = (String)this.recipientBox.getValue();
+               if (var2 == null || var2.isBlank()) {
+                  this.statusLabel.setText("Choose a user to talk to.");
+                  return;
+               }
+
+               this.serverOut.println("MSG|" + var2 + "|" + var1);
+               this.appendRow(ChatClient.Side.RIGHT, this.username + " → " + var2, var1);
+            }
+
+            this.messageField.clear();
+         }
+      };
+      var4.setOnAction((var1x) -> var12.run());
+      this.messageField.setOnAction((var1x) -> var12.run());
+      HBox var13 = new HBox((double)12.0F, new Node[]{var2, var3, this.recipientBox});
+      var13.setAlignment(Pos.CENTER_LEFT);
+      HBox var14 = new HBox((double)10.0F, new Node[]{this.messageField, var4});
+      HBox.setHgrow(this.messageField, Priority.ALWAYS);
+      VBox var15 = new VBox((double)10.0F, new Node[]{var13, var5, var14, this.statusLabel});
+      var15.setPadding(new Insets((double)16.0F));
+      var15.setStyle("-fx-background-color: rgba(15, 23, 42, 0.88); -fx-background-radius: 20;");
+      VBox var16 = new VBox((double)14.0F, new Node[]{var15, var1});
+      VBox.setVgrow(var1, Priority.ALWAYS);
+      var16.setPadding(new Insets((double)16.0F));
+      var16.setStyle("-fx-background-color: linear-gradient(to bottom right, #020617, #111827);");
+      this.appendRow(ChatClient.Side.CENTER, "System", this.mode == ChatClient.ChatMode.SERVER ? "Connected to server bot mode." : "Connected to peer chat mode.");
+      return var16;
+   }
+
+   private void readIncoming() {
+      String var1;
+      try {
+         while((var1 = this.serverIn.readLine()) != null) {
+            this.handleIncoming(var1);
+         }
+      } catch (IOException var2) {
+         Platform.runLater(() -> this.statusLabel.setText("Disconnected"));
+      }
+
+   }
+
+   private void handleIncoming(String var1) {
+      String[] var2 = var1.split("\\|", 3);
+      if (var2.length != 0) {
+         switch (var2[0]) {
+            case "SYS" -> this.appendRow(ChatClient.Side.CENTER, "System", this.safePart(var2, 1));
+            case "USERLIST" -> this.updateUsers(this.safePart(var2, 1));
+            case "MSG" -> this.appendRow(ChatClient.Side.LEFT, this.safePart(var2, 1), this.safePart(var2, 2));
+            default -> this.appendRow(ChatClient.Side.CENTER, "System", var1);
+         }
+
+      }
+   }
+
+   private void updateUsers(String var1) {
+      Platform.runLater(() -> {
+         this.onlineUsers.clear();
+         if (var1 != null && !var1.isBlank()) {
+            for(String var5 : var1.split(",")) {
+               String var6 = var5.trim();
+               if (!var6.isEmpty() && !var6.equals(this.username)) {
+                  this.onlineUsers.add(var6);
+               }
+            }
+         }
+
+         if (this.recipientBox != null) {
+            this.recipientBox.setItems(this.onlineUsers);
+            if (!this.onlineUsers.isEmpty() && this.recipientBox.getValue() == null) {
+               this.recipientBox.setValue((String)this.onlineUsers.get(0));
+            }
+         }
+
+      });
+   }
+
+   private void appendRow(Side var1, String var2, String var3) {
+      if (this.chatBox != null) {
+         String var4 = LocalTime.now().format(this.timeFmt);
+         Platform.runLater(() -> {
+            HBox var5 = new HBox();
+            VBox var6 = new VBox((double)4.0F);
+            var6.setMaxWidth((double)430.0F);
+            var6.setPadding(new Insets((double)10.0F, (double)12.0F, (double)10.0F, (double)12.0F));
+            var6.setStyle(var1 == ChatClient.Side.CENTER ? "-fx-background-color: rgba(148, 163, 184, 0.18); -fx-background-radius: 18;" : "-fx-background-color: linear-gradient(to right, #0f766e, #0891b2); -fx-background-radius: 18;");
+            if (var1 == ChatClient.Side.RIGHT) {
+               var6.setStyle("-fx-background-color: linear-gradient(to right, #2563eb, #7c3aed); -fx-background-radius: 18;");
+            }
+
+            Label var7 = new Label(var2);
+            var7.setStyle("-fx-font-weight: bold; -fx-text-fill: #e2e8f0;");
+            Label var8 = new Label(var3);
+            var8.setWrapText(true);
+            var8.setStyle("-fx-text-fill: #f8fafc; -fx-font-size: 14px;");
+            Label var9 = new Label(var4);
+            var9.setStyle("-fx-text-fill: rgba(248, 250, 252, 0.65); -fx-font-size: 10px;");
+            var6.getChildren().addAll(new Node[]{var7, var8, var9});
+            var5.setAlignment(var1 == ChatClient.Side.RIGHT ? Pos.CENTER_RIGHT : (var1 == ChatClient.Side.CENTER ? Pos.CENTER : Pos.CENTER_LEFT));
+            var5.getChildren().add(var6);
+            this.chatBox.getChildren().add(var5);
+         });
+      }
+   }
+
+   private String safePart(String[] var1, int var2) {
+      return var1.length > var2 ? var1[var2] : "";
+   }
+
+   public void stop() {
+      try {
+         if (this.incomingMessages != null) {
+            this.incomingMessages.interrupt();
+         }
+
+         if (this.serverIn != null) {
+            this.serverIn.close();
+         }
+
+         if (this.serverOut != null) {
+            this.serverOut.close();
+         }
+
+         if (this.socket != null && !this.socket.isClosed()) {
+            this.socket.close();
+         }
+      } catch (IOException var2) {
+      }
+
+   }
+
+   public static void main(String[] var0) {
+      launch(var0);
+   }
+
+   private static enum ChatMode {
+      SERVER,
+      PEER;
+
+      private ChatMode() {
+      }
+   }
+
+   private static enum Side {
+      LEFT,
+      RIGHT,
+      CENTER;
+
+      private Side() {
+      }
+   }
+}
