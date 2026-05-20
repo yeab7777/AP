@@ -84,5 +84,3 @@ Each project is self-contained with its own source code, resources, and document
 Developed by **Yeabsira Tarekegn**  
 Software Engineering Student @ Addis Ababa Science and Technology University  
 
-Feel free to use, modify, and distribute with attribution.
-
